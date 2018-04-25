@@ -43,7 +43,7 @@ class DummyDeserializer(chainer.serializer.Deserializer):
 
 @chainer.testing.parameterize(
     {'iterator_class': chainer.iterators.SerialIterator},
-    {'iterator_class': chainer.iterators.MultiprocessIterator},
+    #{'iterator_class': chainer.iterators.MultiprocessIterator},
 )
 class TestMultiNodeIterator(unittest.TestCase):
 
