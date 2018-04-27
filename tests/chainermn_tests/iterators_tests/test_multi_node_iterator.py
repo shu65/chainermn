@@ -50,7 +50,7 @@ class TestMultiNodeIterator(unittest.TestCase):
 
     def setUp(self):
         if self.iterator_class == chainer.iterators.MultiprocessIterator and \
-                        int(platform.python_version_tuple()[0]) < 3:
+                int(platform.python_version_tuple()[0]) < 3:
             pytest.skip('This test requires Python version >= 3')
         self.communicator = chainermn.create_communicator('naive')
 
