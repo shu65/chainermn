@@ -61,11 +61,19 @@ def init_comms(mpi_comm, intra_rank, intra_size, inter_rank, use_nccl=True):
     inter_mpi_comm = mpi_comm.Split(intra_rank, inter_rank)
     if use_nccl:
         from chainermn import nccl
-        intra_nccl_comm_id = intra_mpi_comm.bcast(nccl.get_unique_id())
+        if intra_rank == 0:
+            intra_nccl_comm_id = nccl.get_unique_id()
+        else:
+            intra_nccl_comm_id = None
+        intra_nccl_comm_id = intra_mpi_comm.bcast(intra_nccl_comm_id)
         intra_nccl_comm = nccl.NcclCommunicator(
             intra_size, intra_nccl_comm_id, intra_rank)
         if nccl.get_version() >= 2000:
-            nccl_comm_id = mpi_comm.bcast(nccl.get_unique_id())
+            if mpi_comm.rank == 0:
+                nccl_comm_id = nccl.get_unique_id()
+            else:
+                nccl_comm_id = None
+            nccl_comm_id = mpi_comm.bcast(nccl_comm_id)
             nccl_comm = nccl.NcclCommunicator(
                 mpi_comm.size, nccl_comm_id, mpi_comm.rank)
         else:
