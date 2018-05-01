@@ -127,7 +127,7 @@ class TestMultiNodeOptimizerWithDynamicModel(unittest.TestCase):
 
         with model.init_scope():
             c = chainer.links.Linear(4, 5)
-            if device:
+            if device >= 0:
                 c.to_gpu()
             model.c = c
         if comm.rank == 0:
