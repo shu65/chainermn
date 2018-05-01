@@ -178,7 +178,7 @@ class TestMultiNodeOptimizerWithDynamicModel(unittest.TestCase):
     @chainer.testing.attr.gpu
     def test_update_with_gpu(self):
         comm = chainermn.create_communicator('hierarchical')
-        device = self.comm.intra_rank
+        device = comm.intra_rank
         chainer.cuda.get_device(device).use()
         model = self.setup_model()
         model.to_gpu()
