@@ -19,89 +19,75 @@ class ExampleModel(chainer.Chain):
 
 class TestMultiNodeOptimizer(unittest.TestCase):
 
-    def setup_cpu(self):
-        self.comm = chainermn.create_communicator('naive')
-        self.target = ExampleModel()
-        self.target.a.W.data[:] = self.comm.rank
-        self.target.b.W.data[:] = self.comm.rank + 1
-        self.target.c.W.data[:] = self.comm.rank + 2
-        self.target.a.W.grad[:] = 0
-        self.target.b.W.grad[:] = 0
-        self.target.c.W.grad[:] = 0
-        self.actual_optimizer = chainer.GradientMethod()
-        self.actual_optimizer.create_update_rule = mock.MagicMock
+    def setup_model(self):
+        model = ExampleModel()
+        model.a.W.data[:] = 0
+        model.b.W.data[:] = 0
+        model.c.W.data[:] = 0
+        model.a.W.grad[:] = 0
+        model.b.W.grad[:] = 0
+        model.c.W.grad[:] = 0
+        return model
 
-    def setup_gpu(self, device=None):
-        self.comm = chainermn.create_communicator('hierarchical')
-        device = self.comm.intra_rank
-        chainer.cuda.get_device(device).use()
-        self.target = ExampleModel()
-        self.target.to_gpu()
-        self.target.a.W.data[:] = self.comm.rank
-        self.target.b.W.data[:] = self.comm.rank + 1
-        self.target.c.W.data[:] = self.comm.rank + 2
-        self.target.a.W.grad[:] = 0
-        self.target.b.W.grad[:] = 0
-        self.target.c.W.grad[:] = 0
-        self.actual_optimizer = chainer.GradientMethod()
-        self.actual_optimizer.create_update_rule = mock.MagicMock
+    def setup_actual_optimizer(self):
+        actual_optimizer = chainer.GradientMethod()
+        actual_optimizer.create_update_rule = mock.MagicMock
+        return actual_optimizer
+
+    def check_update(self, comm, model, actual_optimizer, optimizer):
+        optimizer.setup(model)
+        optimizer.target.a.W.data[:] = comm.rank
+        optimizer.target.b.W.data[:] = comm.rank + 1
+        optimizer.target.c.W.data[:] = comm.rank + 2
+        optimizer.update()
+        self.assertEqual(actual_optimizer.t, 0)
+        chainer.testing.assert_allclose(optimizer.target.a.W.data,
+                                        0 * np.ones((3, 2)))
+        chainer.testing.assert_allclose(optimizer.target.b.W.data,
+                                        1 * np.ones((4, 3)))
+        chainer.testing.assert_allclose(optimizer.target.c.W.data,
+                                        2 * np.ones((5, 4)))
+
+        optimizer.target.a.W.grad[:] = comm.rank
+        optimizer.target.b.W.grad[:] = comm.rank + 1
+        optimizer.target.c.W.grad[:] = comm.rank + 2
+
+        optimizer.update()
+        self.assertEqual(actual_optimizer.t, 1)
+        optimizer.target.a.W.update_rule.update.assert_called_once_with(
+            optimizer.target.a.W)
+        optimizer.target.b.W.update_rule.update.assert_called_once_with(
+            optimizer.target.b.W)
+        optimizer.target.c.W.update_rule.update.assert_called_once_with(
+            optimizer.target.c.W)
+
+        base = (comm.size - 1.0) / 2
+        chainer.testing.assert_allclose(optimizer.target.a.W.grad,
+                                        (base + 0) * np.ones((3, 2)))
+        chainer.testing.assert_allclose(optimizer.target.b.W.grad,
+                                        (base + 1) * np.ones((4, 3)))
+        chainer.testing.assert_allclose(optimizer.target.c.W.grad,
+                                        (base + 2) * np.ones((5, 4)))
 
     def test_update_with_cpu(self):
-        self.setup_cpu()
-        self.optimizer = chainermn.create_multi_node_optimizer(
-            self.actual_optimizer, self.comm)
-        self.optimizer.setup(self.target)
-        self.optimizer.update()
-        self.assertEqual(self.actual_optimizer.t, 0)
-        self.optimizer.target.a.W.grad[:] = self.comm.rank
-        self.optimizer.target.b.W.grad[:] = self.comm.rank + 1
-        self.optimizer.target.c.W.grad[:] = self.comm.rank + 2
-
-        self.optimizer.update()
-        self.assertEqual(self.actual_optimizer.t, 1)
-        self.optimizer.target.a.W.update_rule.update.assert_called_once_with(
-            self.optimizer.target.a.W)
-        self.optimizer.target.b.W.update_rule.update.assert_called_once_with(
-            self.optimizer.target.b.W)
-        self.optimizer.target.c.W.update_rule.update.assert_called_once_with(
-            self.optimizer.target.c.W)
-
-        base = (self.comm.size - 1.0) / 2
-        chainer.testing.assert_allclose(self.optimizer.target.a.W.grad,
-                                        (base + 0) * np.ones((3, 2)))
-        chainer.testing.assert_allclose(self.optimizer.target.b.W.grad,
-                                        (base + 1) * np.ones((4, 3)))
-        chainer.testing.assert_allclose(self.optimizer.target.c.W.grad,
-                                        (base + 2) * np.ones((5, 4)))
+        comm = chainermn.create_communicator('naive')
+        model = self.setup_model()
+        actual_optimizer = self.setup_actual_optimizer()
+        multi_node_optimizer = chainermn.create_multi_node_optimizer(
+            actual_optimizer, comm)
+        self.check_update(comm, model, actual_optimizer, multi_node_optimizer)
 
     @chainer.testing.attr.gpu
     def test_update_with_gpu(self):
-        self.setup_gpu()
-        self.optimizer = chainermn.create_multi_node_optimizer(
-            self.actual_optimizer, self.comm)
-        self.optimizer.setup(self.target)
-        self.optimizer.update()
-        self.assertEqual(self.actual_optimizer.t, 0)
-        self.optimizer.target.a.W.grad[:] = self.comm.rank
-        self.optimizer.target.b.W.grad[:] = self.comm.rank + 1
-        self.optimizer.target.c.W.grad[:] = self.comm.rank + 2
-
-        self.optimizer.update()
-        self.assertEqual(self.actual_optimizer.t, 1)
-        self.optimizer.target.a.W.update_rule.update.assert_called_once_with(
-            self.optimizer.target.a.W)
-        self.optimizer.target.b.W.update_rule.update.assert_called_once_with(
-            self.optimizer.target.b.W)
-        self.optimizer.target.c.W.update_rule.update.assert_called_once_with(
-            self.optimizer.target.c.W)
-
-        base = (self.comm.size - 1.0) / 2
-        chainer.testing.assert_allclose(self.optimizer.target.a.W.grad,
-                                        (base + 0) * np.ones((3, 2)))
-        chainer.testing.assert_allclose(self.optimizer.target.b.W.grad,
-                                        (base + 1) * np.ones((4, 3)))
-        chainer.testing.assert_allclose(self.optimizer.target.c.W.grad,
-                                        (base + 2) * np.ones((5, 4)))
+        comm = chainermn.create_communicator('hierarchical')
+        device = self.comm.intra_rank
+        chainer.cuda.get_device(device).use()
+        model = self.setup_model()
+        model.to_gpu()
+        actual_optimizer = self.setup_actual_optimizer()
+        multi_node_optimizer = chainermn.create_multi_node_optimizer(
+            actual_optimizer, comm)
+        self.check_update(comm, model, actual_optimizer, multi_node_optimizer)
 
 
 class DynamicExampleModel(chainer.Chain):
@@ -115,110 +101,89 @@ class DynamicExampleModel(chainer.Chain):
 
 class TestMultiNodeOptimizerWithDynamicModel(unittest.TestCase):
 
-    def setup_cpu(self):
-        self.comm = chainermn.create_communicator('naive')
-        self.target = DynamicExampleModel()
-        self.target.a.W.data[:] = self.comm.rank
-        self.target.b.W.data[:] = self.comm.rank + 1
-        self.target.a.W.grad[:] = 0
-        self.target.b.W.grad[:] = 0
-        self.actual_optimizer = chainer.GradientMethod()
-        self.actual_optimizer.create_update_rule = mock.MagicMock
+    def setup_model(self):
+        model = DynamicExampleModel()
+        model.a.W.data[:] = 0
+        model.b.W.data[:] = 0
+        model.a.W.grad[:] = 0
+        model.b.W.grad[:] = 0
+        return model
 
-    def setup_gpu(self, device=None):
-        self.comm = chainermn.create_communicator('hierarchical')
-        device = self.comm.intra_rank
-        chainer.cuda.get_device(device).use()
-        self.target = DynamicExampleModel()
-        self.target.to_gpu()
-        self.target.a.W.data[:] = self.comm.rank
-        self.target.b.W.data[:] = self.comm.rank + 1
-        self.target.a.W.grad[:] = 0
-        self.target.b.W.grad[:] = 0
-        self.actual_optimizer = chainer.GradientMethod()
-        self.actual_optimizer.create_update_rule = mock.MagicMock
+    def setup_actual_optimizer(self):
+        actual_optimizer = chainer.GradientMethod()
+        actual_optimizer.create_update_rule = mock.MagicMock
+        return actual_optimizer
+
+    def check_update(self, device, comm, model, actual_optimizer, optimizer):
+        optimizer.setup(model)
+        optimizer.target.a.W.data[:] = comm.rank
+        optimizer.target.b.W.data[:] = comm.rank + 1
+        optimizer.update()
+        self.assertEqual(actual_optimizer.t, 0)
+        chainer.testing.assert_allclose(optimizer.target.a.W.data,
+                                        0 * np.ones((3, 2)))
+        chainer.testing.assert_allclose(optimizer.target.b.W.data,
+                                        1 * np.ones((4, 3)))
+
+        with model.init_scope():
+            c = chainer.links.Linear(4, 5)
+            if device:
+                c.to_gpu()
+            model.c = c
+        if comm.rank == 0:
+            model.c.W.data[:] = comm.rank + 2
+        else:
+            model.c.W.data[:] = 0
+        optimizer.setup(model)
+        optimizer.update()
+        self.assertEqual(actual_optimizer.t, 0)
+        chainer.testing.assert_allclose(optimizer.target.a.W.data,
+                                        0 * np.ones((3, 2)))
+        chainer.testing.assert_allclose(optimizer.target.b.W.data,
+                                        1 * np.ones((4, 3)))
+        chainer.testing.assert_allclose(optimizer.target.c.W.data,
+                                        2 * np.ones((5, 4)))
+
+        optimizer.target.a.W.grad[:] = comm.rank
+        optimizer.target.b.W.grad[:] = comm.rank + 1
+        optimizer.target.c.W.grad[:] = comm.rank + 2
+
+        optimizer.update()
+        self.assertEqual(actual_optimizer.t, 1)
+        optimizer.target.a.W.update_rule.update.assert_called_once_with(
+            optimizer.target.a.W)
+        optimizer.target.b.W.update_rule.update.assert_called_once_with(
+            optimizer.target.b.W)
+        optimizer.target.c.W.update_rule.update.assert_called_once_with(
+            optimizer.target.c.W)
+
+        base = (comm.size - 1.0) / 2
+        chainer.testing.assert_allclose(optimizer.target.a.W.grad,
+                                        (base + 0) * np.ones((3, 2)))
+        chainer.testing.assert_allclose(optimizer.target.b.W.grad,
+                                        (base + 1) * np.ones((4, 3)))
+        chainer.testing.assert_allclose(optimizer.target.c.W.grad,
+                                        (base + 2) * np.ones((5, 4)))
 
     def test_update_with_cpu(self):
-        self.setup_cpu()
-        self.optimizer = chainermn.create_multi_node_optimizer(
-            self.actual_optimizer, self.comm)
-        self.optimizer.setup(self.target)
-        self.optimizer.update()
-        self.assertEqual(self.actual_optimizer.t, 0)
-
-        with self.target.init_scope():
-            self.target.c = chainer.links.Linear(4, 4)
-        if self.comm.rank == 0:
-            self.target.c.W.data[:] = self.comm.rank + 2
-        self.optimizer.setup(self.target)
-        self.optimizer.update()
-        self.assertEqual(self.actual_optimizer.t, 0)
-
-        send_buf = chainer.cuda.to_cpu(self.optimizer.target.c.W.data)
-        recv_buf = self.comm.mpi_comm.allgather(send_buf)
-        for i in range(1, self.comm.size):
-            chainer.testing.assert_allclose(recv_buf[0], recv_buf[i])
-
-        self.optimizer.target.a.W.grad[:] = self.comm.rank
-        self.optimizer.target.b.W.grad[:] = self.comm.rank + 1
-        self.optimizer.target.c.W.grad[:] = self.comm.rank + 2
-        self.optimizer.update()
-        self.assertEqual(self.actual_optimizer.t, 1)
-        self.optimizer.target.a.W.update_rule.update.assert_called_once_with(
-            self.optimizer.target.a.W)
-        self.optimizer.target.b.W.update_rule.update.assert_called_once_with(
-            self.optimizer.target.b.W)
-        self.optimizer.target.c.W.update_rule.update.assert_called_once_with(
-            self.optimizer.target.c.W)
-
-        base = (self.comm.size - 1.0) / 2
-        chainer.testing.assert_allclose(self.optimizer.target.a.W.grad,
-                                        (base + 0) * np.ones((3, 2)))
-        chainer.testing.assert_allclose(self.optimizer.target.b.W.grad,
-                                        (base + 1) * np.ones((4, 3)))
-        chainer.testing.assert_allclose(self.optimizer.target.c.W.grad,
-                                        (base + 2) * np.ones((4, 4)))
+        comm = chainermn.create_communicator('naive')
+        device = -1
+        model = self.setup_model()
+        actual_optimizer = self.setup_actual_optimizer()
+        multi_node_optimizer = chainermn.create_multi_node_optimizer(
+            actual_optimizer, comm)
+        self.check_update(device, comm, model, actual_optimizer,
+                          multi_node_optimizer)
 
     @chainer.testing.attr.gpu
     def test_update_with_gpu(self):
-        self.setup_gpu()
-        self.optimizer = chainermn.create_multi_node_optimizer(
-            self.actual_optimizer, self.comm)
-        self.optimizer.setup(self.target)
-        self.optimizer.update()
-        self.assertEqual(self.actual_optimizer.t, 0)
-
-        with self.target.init_scope():
-            c = chainer.links.Linear(4, 4)
-            c.to_gpu()
-            self.target.c = c
-        if self.comm.rank == 0:
-            self.target.c.W.data[:] = self.comm.rank + 2
-        self.optimizer.setup(self.target)
-        self.optimizer.update()
-        self.assertEqual(self.actual_optimizer.t, 0)
-
-        send_buf = chainer.cuda.to_cpu(self.optimizer.target.c.W.data)
-        recv_buf = self.comm.mpi_comm.allgather(send_buf)
-        for i in range(1, self.comm.size):
-            chainer.testing.assert_allclose(recv_buf[0], recv_buf[i])
-
-        self.optimizer.target.a.W.grad[:] = self.comm.rank
-        self.optimizer.target.b.W.grad[:] = self.comm.rank + 1
-        self.optimizer.target.c.W.grad[:] = self.comm.rank + 2
-        self.optimizer.update()
-        self.assertEqual(self.actual_optimizer.t, 1)
-        self.optimizer.target.a.W.update_rule.update.assert_called_once_with(
-            self.optimizer.target.a.W)
-        self.optimizer.target.b.W.update_rule.update.assert_called_once_with(
-            self.optimizer.target.b.W)
-        self.optimizer.target.c.W.update_rule.update.assert_called_once_with(
-            self.optimizer.target.c.W)
-
-        base = (self.comm.size - 1.0) / 2
-        chainer.testing.assert_allclose(self.optimizer.target.a.W.grad,
-                                        (base + 0) * np.ones((3, 2)))
-        chainer.testing.assert_allclose(self.optimizer.target.b.W.grad,
-                                        (base + 1) * np.ones((4, 3)))
-        chainer.testing.assert_allclose(self.optimizer.target.c.W.grad,
-                                        (base + 2) * np.ones((4, 4)))
+        comm = chainermn.create_communicator('hierarchical')
+        device = self.comm.intra_rank
+        chainer.cuda.get_device(device).use()
+        model = self.setup_model()
+        model.to_gpu()
+        actual_optimizer = self.setup_actual_optimizer()
+        multi_node_optimizer = chainermn.create_multi_node_optimizer(
+            actual_optimizer, comm)
+        self.check_update(device, comm, model, actual_optimizer,
+                          multi_node_optimizer)
