@@ -36,7 +36,7 @@ def check_mnist(gpu, display_log=True):
     n_units = 100
 
     if gpu:
-        comm = chainermn.create_communicator('hierarchical')
+        comm = chainermn.create_communicator('naive')
         device = comm.intra_rank
         chainer.cuda.get_device(device).use()
     else:
