@@ -113,7 +113,7 @@ def test_mnist():
 
 @chainer.testing.attr.gpu
 def test_mnist_gpu():
-    pytest.skip('debug')
+    #pytest.skip('debug')
     check_mnist(True)
 
 
