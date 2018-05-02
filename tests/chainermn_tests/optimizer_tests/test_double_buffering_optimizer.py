@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import unittest
 import mpi4py
+import os
 
 
 class ExampleModel(chainer.Chain):
@@ -237,6 +238,8 @@ class TestDoubleBufferingOptimizerWithDynamicModel(unittest.TestCase):
         if nccl.get_version() < 2000:
             pytest.skip('This test requires NCCL version >= 2.0')
         comm = chainermn.create_communicator('pure_nccl')
+        st = os.statvfs("/dev/shm")
+        print(comm.rank, st)
         device = comm.intra_rank
         chainer.cuda.get_device(device).use()
         model = self.setup_model()

@@ -117,5 +117,6 @@ def test_mnist_gpu():
     check_mnist(True)
 
 
+
 if __name__ == "__main__":
     test_mnist()
