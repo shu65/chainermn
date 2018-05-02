@@ -98,6 +98,9 @@ class TestDoubleBufferingOptimizer(unittest.TestCase):
         if nccl.get_version() < 2000:
             pytest.skip('This test requires NCCL version >= 2.0')
         comm = chainermn.create_communicator('pure_nccl')
+        comm.mpi_comm.Barrier()
+        st = os.statvfs("/dev/shm")
+        print(comm.rank, st)
         device = comm.intra_rank
         chainer.cuda.get_device(device).use()
         model = self.setup_model()
@@ -233,11 +236,10 @@ class TestDoubleBufferingOptimizerWithDynamicModel(unittest.TestCase):
 
     @chainer.testing.attr.gpu
     def test_update(self):
-        mpi_comm = mpi4py.MPI.COMM_WORLD
-        mpi_comm.Barrier()
         if nccl.get_version() < 2000:
             pytest.skip('This test requires NCCL version >= 2.0')
         comm = chainermn.create_communicator('pure_nccl')
+        comm.mpi_comm.Barrier()
         st = os.statvfs("/dev/shm")
         print(comm.rank, st)
         device = comm.intra_rank
