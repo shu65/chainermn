@@ -102,6 +102,7 @@ class TestMultiNodeOptimizer(unittest.TestCase):
                                         (base + 1) * np.ones((4, 3)))
         chainer.testing.assert_allclose(self.optimizer.target.c.W.grad,
                                         (base + 2) * np.ones((5, 4)))
+        self.comm.mpi_comm.barrier()
 
 
 class DynamicExampleModel(chainer.Chain):
@@ -222,3 +223,5 @@ class TestMultiNodeOptimizerWithDynamicModel(unittest.TestCase):
                                         (base + 1) * np.ones((4, 3)))
         chainer.testing.assert_allclose(self.optimizer.target.c.W.grad,
                                         (base + 2) * np.ones((4, 4)))
+        self.comm.mpi_comm.barrier()
+
