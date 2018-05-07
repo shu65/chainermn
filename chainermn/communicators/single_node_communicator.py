@@ -29,8 +29,7 @@ class SingleNodeCommunicator(mpi_communicator_base.MpiCommunicatorBase):
         self.gpu_buffer_b = _memory_utility.DeviceMemory()
 
     def _init_comms(self):
-        if self.intra_mpi_comm is not None:
-            assert self.intra_nccl_comm is not None
+        if self.intra_nccl_comm is not None:
             return
 
         intra_mpi_comm = _communication_utility.init_intra_mpi_comm(
