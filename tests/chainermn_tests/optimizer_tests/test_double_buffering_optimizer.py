@@ -85,6 +85,8 @@ class TestDoubleBufferingOptimizer(unittest.TestCase):
         chainer.testing.assert_allclose(
             self.optimizer.communicated_target.c.W.grad,
             (base + 5) * np.ones((5, 4)))
+        # barrier() requires before destructor of PureNcclCommunicator
+        # because communication may not be finished.
         self.comm.mpi_comm.barrier()
 
 
@@ -207,5 +209,6 @@ class TestDoubleBufferingOptimizerWithDynamicModel(unittest.TestCase):
         chainer.testing.assert_allclose(
             self.optimizer.communicated_target.c.W.grad,
             (base + 11) * np.ones((4, 4)))
+        # barrier() requires before destructor of PureNcclCommunicator
+        # because communication may not be finished.
         self.comm.mpi_comm.barrier()
-
