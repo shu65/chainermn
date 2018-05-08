@@ -231,6 +231,7 @@ def check_collective_communication(param, use_gpu):
     check_bcast_data(communicator, model)
     check_allreduce_grad(communicator, model)
     check_allreduce_grad_empty(communicator, model)
+    communicator.mpi_comm.barrier()
 
 
 # chainer.testing.parameterize is not available at functions
