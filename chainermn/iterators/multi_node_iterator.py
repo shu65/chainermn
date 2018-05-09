@@ -44,8 +44,7 @@ class _MultiNodeIteratorMaster(chainer.dataset.iterator.Iterator):
             first_elem = batch[0]
             valid_data_type = _is_valid_type(first_elem)
             is_paired_dataset = isinstance(batch, list) \
-                                and isinstance(first_elem, tuple) \
-                                and len(first_elem) == 2
+                and isinstance(first_elem, tuple) and len(first_elem) == 2
             stop = False
         except StopIteration:
             stop = True
@@ -160,7 +159,6 @@ class _MultiNodeIteratorSlave(chainer.dataset.iterator.Iterator):
             else:
                 batch = self.communicator.bcast(None, root=self.rank_master)
                 return batch.tolist()
-
 
     @property
     def epoch_detail(self):
