@@ -69,7 +69,7 @@ class _MultiNodeIteratorMaster(chainer.dataset.iterator.Iterator):
 
         if stop:
             raise StopIteration
-        elif valid_data_type:
+        elif not valid_data_type:
             raise RuntimeError('Multi node iterator supports numpy.float32 '
                                'or tuple of numpy.float32 as the data type '
                                'of the batch element only.')
@@ -148,7 +148,7 @@ class _MultiNodeIteratorSlave(chainer.dataset.iterator.Iterator):
 
         if stop:
             raise StopIteration
-        elif valid_data_type:
+        elif not valid_data_type:
             raise RuntimeError('Multi node iterator supports numpy.float32 '
                                'or tuple of numpy.float32 as the data type '
                                'of the batch element only.')
