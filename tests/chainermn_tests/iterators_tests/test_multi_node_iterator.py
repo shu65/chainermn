@@ -187,14 +187,6 @@ class TestMultiNodeIteratorDataType(unittest.TestCase):
         if self.communicator.size < 2:
             pytest.skip("This test is for multinode only")
 
-        self.N = 100
-        if self.paired_dataset:
-            self.dataset = list(zip(
-                np.arange(self.N).astype(np.float32),
-                np.arange(self.N).astype(np.float32)))
-        else:
-            self.dataset = np.arange(self.N).astype(np.float32)
-
     def test_invalid_type(self):
         self.N = 10
         self.dataset = ["test"]*self.N
