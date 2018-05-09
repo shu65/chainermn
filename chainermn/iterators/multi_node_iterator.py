@@ -2,6 +2,18 @@ import chainer
 import numpy
 
 
+def _is_valid_type(element):
+    if isinstance(element, tuple) and len(element) == 2 \
+            and hasattr(element[0], 'dtype') \
+            and element[0].dtype == numpy.float32 \
+            and hasattr(element[1], 'dtype') \
+            and element[1].dtype == numpy.float32:
+        return True
+    elif hasattr(element, 'dtype') and element.dtype == numpy.float32:
+        return True
+    return False
+
+
 class _MultiNodeIteratorMaster(chainer.dataset.iterator.Iterator):
 
     def __init__(self, actual_iterator, communicator, rank_master):
@@ -29,29 +41,39 @@ class _MultiNodeIteratorMaster(chainer.dataset.iterator.Iterator):
     def __next__(self):
         try:
             batch = self.actual_iterator.__next__()
+            first_elem = batch[0]
+            valid_data_type = _is_valid_type(first_elem)
             is_paired_dataset = isinstance(batch, list) \
-                                and isinstance(batch[0], tuple) \
-                                and len(batch[0]) == 2
+                                and isinstance(first_elem, tuple) \
+                                and len(first_elem) == 2
             stop = False
         except StopIteration:
             stop = True
+            valid_data_type = False
             is_paired_dataset = False
 
         is_new_epoch = self.actual_iterator.is_new_epoch
 
         # Notify the followings to slave iterators:
         # 1. whether stop signal is received before broadcasting data.
-        # 2. whether dataset is paired.
-        # 3. is_new_epoch.
-        # 4. current_position.
-        _info = numpy.ones((4, )) \
-            * [int(stop), int(is_paired_dataset),
+        # 2. whether type of batch element is valid.
+        # 3. whether dataset is paired.
+        # 4. is_new_epoch.
+        # 5. current_position.
+        _info = numpy.ones((5, )) \
+            * [int(stop), int(valid_data_type), int(is_paired_dataset),
                int(is_new_epoch),
                int(self.actual_iterator.current_position)]
         _info = _info.astype(numpy.float32)
         self.communicator.bcast(_info, root=self.rank_master)
 
-        if not stop:
+        if stop:
+            raise StopIteration
+        elif valid_data_type:
+            raise RuntimeError('Multi node iterator supports numpy.float32 '
+                               'or tuple of numpy.float32 as the data type '
+                               'of the batch element only.')
+        else:
             if is_paired_dataset:
                 _xs, _ys = zip(*batch)
                 xs = numpy.asarray(_xs, dtype=numpy.float32)
@@ -64,8 +86,6 @@ class _MultiNodeIteratorMaster(chainer.dataset.iterator.Iterator):
                     batch = numpy.array(batch)
                 batch = self.communicator.bcast(batch, root=self.rank_master)
                 return batch.tolist()
-        else:
-            raise StopIteration
 
     next = __next__
 
@@ -118,14 +138,21 @@ class _MultiNodeIteratorSlave(chainer.dataset.iterator.Iterator):
         # Check if master iterator received stop signal.
         _info = self.communicator.bcast(None, root=self.rank_master)
         stop = bool(_info[0])
-        is_paired_dataset = bool(_info[1])
-        self.is_new_epoch = bool(_info[2])
-        self.current_position = int(_info[3])
+        valid_data_type = bool(_info[1])
+        is_paired_dataset = bool(_info[2])
+        self.is_new_epoch = bool(_info[3])
+        self.current_position = int(_info[4])
 
         if self.is_new_epoch:
             self.epoch += 1
 
-        if not stop:
+        if stop:
+            raise StopIteration
+        elif valid_data_type:
+            raise RuntimeError('Multi node iterator supports numpy.float32 '
+                               'or tuple of numpy.float32 as the data type '
+                               'of the batch element only.')
+        else:
             if is_paired_dataset:
                 xs = self.communicator.bcast(None, root=self.rank_master)
                 ys = self.communicator.bcast(None, root=self.rank_master)
@@ -133,8 +160,7 @@ class _MultiNodeIteratorSlave(chainer.dataset.iterator.Iterator):
             else:
                 batch = self.communicator.bcast(None, root=self.rank_master)
                 return batch.tolist()
-        else:
-            raise StopIteration
+
 
     @property
     def epoch_detail(self):
@@ -197,6 +223,9 @@ def create_multi_node_iterator(
     communication might be large. If you train your model-parallel network
     on extremely large dataset, you can also consider to use
     ``chainermn.iterators.create_synchronized_iterator``.
+
+    Current multi node iterator supports numpy.float32 or tuple of
+    numpy.float32 as the data type of the batch element.
 
     .. note:: ``create_multi_node_iterator`` and ``serialize`` of created
               iterators must be called at the same time by master and slaves,

@@ -195,7 +195,7 @@ class TestMultiNodeIteratorDataType(unittest.TestCase):
         else:
             self.dataset = np.arange(self.N).astype(np.float32)
 
-    def test_string_list(self):
+    def test_invalid_type(self):
         self.N = 10
         self.dataset = ["test"]*self.N
 
@@ -205,13 +205,5 @@ class TestMultiNodeIteratorDataType(unittest.TestCase):
                 self.dataset, batch_size=bs, shuffle=True),
             self.communicator)
 
-        for e in range(3):
-            for i in range(self.N):
-                batch = iterator.next()
-                if self.communicator.rank == 0:
-                    for rank_from in range(1, self.communicator.size):
-                        _batch = self.communicator.mpi_comm.recv(
-                            source=rank_from)
-                        self.assertEqual(batch, _batch)
-                else:
-                    self.communicator.mpi_comm.ssend(batch, dest=0)
+        with self.assertRaises(RuntimeError):
+            iterator.next()
