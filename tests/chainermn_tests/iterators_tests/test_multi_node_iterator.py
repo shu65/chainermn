@@ -43,7 +43,7 @@ class DummyDeserializer(chainer.serializer.Deserializer):
 
 
 @chainer.testing.parameterize(*chainer.testing.product({
-    'paired_dataset': [True, False],
+    'dataset_type': ['tuple', 'list', 'dict', 'ndarray'],
     'iterator_class': [
         chainer.iterators.SerialIterator,
         chainer.iterators.MultiprocessIterator
@@ -61,11 +61,17 @@ class TestMultiNodeIterator(unittest.TestCase):
             pytest.skip("This test is for multinode only")
 
         self.N = 100
-        if self.paired_dataset:
-            self.dataset = list(zip(
+        if self.dataset_type == 'tuple':
+            self.dataset = tuple(zip(
+                np.arange(self.N).astype(np.float32),
                 np.arange(self.N).astype(np.float32),
                 np.arange(self.N).astype(np.float32)))
-        else:
+        elif self.dataset_type == 'list':
+            self.dataset = list(zip(
+                np.arange(self.N).astype(np.float32),
+                np.arange(self.N).astype(np.float32),
+                np.arange(self.N).astype(np.float32)))
+        elif self.dataset_type == 'ndarray':
             self.dataset = np.arange(self.N).astype(np.float32)
 
     def test_mn_iterator(self):

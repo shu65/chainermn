@@ -1,6 +1,12 @@
 import chainer
 import numpy
 
+_SUPPORTED_DATA_TYPE_ID = {
+    'tuple':0,
+    'list':1,
+    'dict': 2,
+    'ndarray':3
+}
 
 class _MultiNodeIterator_Master(chainer.dataset.iterator.Iterator):
 
