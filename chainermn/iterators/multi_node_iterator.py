@@ -2,14 +2,14 @@ import chainer
 import numpy
 
 
-class _MultiNodeIterator_Master(chainer.dataset.iterator.Iterator):
+class _MultiNodeIteratorMaster(chainer.dataset.iterator.Iterator):
 
     def __init__(self, actual_iterator, communicator, rank_master):
-        super(_MultiNodeIterator_Master, self).__setattr__(
+        super(_MultiNodeIteratorMaster, self).__setattr__(
             'communicator', communicator)
-        super(_MultiNodeIterator_Master, self).__setattr__(
+        super(_MultiNodeIteratorMaster, self).__setattr__(
             'actual_iterator', actual_iterator)
-        super(_MultiNodeIterator_Master, self).__setattr__(
+        super(_MultiNodeIteratorMaster, self).__setattr__(
             'rank_master', rank_master)
 
         _dataset_size = numpy.ones((1, )).astype(numpy.float32) \
@@ -29,9 +29,10 @@ class _MultiNodeIterator_Master(chainer.dataset.iterator.Iterator):
     def __next__(self):
         try:
             batch = self.actual_iterator.__next__()
-            stop = False
             is_paired_dataset = isinstance(batch, list) \
-                and isinstance(batch[0], tuple) and len(batch[0]) == 2
+                                and isinstance(batch[0], tuple) \
+                                and len(batch[0]) == 2
+            stop = False
         except StopIteration:
             stop = True
             is_paired_dataset = False
@@ -93,10 +94,10 @@ class _MultiNodeIterator_Master(chainer.dataset.iterator.Iterator):
             serializer, root=self.rank_master)
 
 
-class _MultiNodeIterator_Slave(chainer.dataset.iterator.Iterator):
+class _MultiNodeIteratorSlave(chainer.dataset.iterator.Iterator):
 
     def __init__(self, communicator, rank_master):
-        super(_MultiNodeIterator_Slave, self).__init__()
+        super(_MultiNodeIteratorSlave, self).__init__()
         self.communicator = communicator
         self.rank_master = rank_master
 
@@ -215,7 +216,7 @@ def create_multi_node_iterator(
     chainer.utils.experimental(
         'chainermn.iterators.create_multi_node_iterator')
     if communicator.rank == rank_master:
-        return _MultiNodeIterator_Master(
+        return _MultiNodeIteratorMaster(
             actual_iterator, communicator, rank_master)
     else:
-        return _MultiNodeIterator_Slave(communicator, rank_master)
+        return _MultiNodeIteratorSlave(communicator, rank_master)

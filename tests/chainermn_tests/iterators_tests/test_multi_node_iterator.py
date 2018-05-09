@@ -177,3 +177,44 @@ class TestMultiNodeIterator(unittest.TestCase):
             self.assertEqual(iterator._order.tolist(), new_order.tolist())
         else:
             self.assertEqual(iterator._order.tolist(), order.tolist())
+
+
+class TestMultiNodeIteratorDataType(unittest.TestCase):
+
+    def setUp(self):
+        if self.iterator_class == chainer.iterators.MultiprocessIterator and \
+                int(platform.python_version_tuple()[0]) < 3:
+            pytest.skip('This test requires Python version >= 3')
+        self.communicator = chainermn.create_communicator('naive')
+
+        if self.communicator.size < 2:
+            pytest.skip("This test is for multinode only")
+
+        self.N = 100
+        if self.paired_dataset:
+            self.dataset = list(zip(
+                np.arange(self.N).astype(np.float32),
+                np.arange(self.N).astype(np.float32)))
+        else:
+            self.dataset = np.arange(self.N).astype(np.float32)
+
+    def test_string_list(self):
+        self.N = 10
+        self.dataset = ["test"]*self.N
+
+        bs = 1
+        iterator = chainermn.iterators.create_multi_node_iterator(
+            self.iterator_class(
+                self.dataset, batch_size=bs, shuffle=True),
+            self.communicator)
+
+        for e in range(3):
+            for i in range(self.N):
+                batch = iterator.next()
+                if self.communicator.rank == 0:
+                    for rank_from in range(1, self.communicator.size):
+                        _batch = self.communicator.mpi_comm.recv(
+                            source=rank_from)
+                        self.assertEqual(batch, _batch)
+                else:
+                    self.communicator.mpi_comm.ssend(batch, dest=0)
