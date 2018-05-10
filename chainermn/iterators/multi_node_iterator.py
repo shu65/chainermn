@@ -14,6 +14,24 @@ def _is_valid_type(element):
     return False
 
 
+def _build_ctrl_msg(stop, is_valid_data_type, is_paired_dataset, is_new_epoch,
+                    current_position):
+    ctrl_msg = numpy.ones((5,)) * [int(stop), int(is_valid_data_type),
+                                   int(is_paired_dataset), int(is_new_epoch),
+                                   int(current_position)]
+    return ctrl_msg.astype(numpy.float32)
+
+
+def _parse_ctrl_msg(msg):
+    stop = bool(msg[0])
+    is_valid_data_type = bool(msg[1])
+    is_paired_dataset = bool(msg[2])
+    is_new_epoch = bool(msg[3])
+    current_position = int(msg[4])
+    return stop, is_valid_data_type, is_paired_dataset, is_new_epoch,\
+        current_position
+
+
 class _MultiNodeIteratorMaster(chainer.dataset.iterator.Iterator):
 
     def __init__(self, actual_iterator, communicator, rank_master):
@@ -42,49 +60,40 @@ class _MultiNodeIteratorMaster(chainer.dataset.iterator.Iterator):
         try:
             batch = self.actual_iterator.__next__()
             first_elem = batch[0]
-            valid_data_type = _is_valid_type(first_elem)
+            is_valid_data_type = _is_valid_type(first_elem)
             is_paired_dataset = isinstance(batch, list) \
                 and isinstance(first_elem, tuple) and len(first_elem) == 2
             stop = False
         except StopIteration:
             stop = True
-            valid_data_type = False
+            is_valid_data_type = False
             is_paired_dataset = False
 
         is_new_epoch = self.actual_iterator.is_new_epoch
-
-        # Notify the followings to slave iterators:
-        # 1. whether stop signal is received before broadcasting data.
-        # 2. whether type of batch element is valid.
-        # 3. whether dataset is paired.
-        # 4. is_new_epoch.
-        # 5. current_position.
-        _info = numpy.ones((5, )) \
-            * [int(stop), int(valid_data_type), int(is_paired_dataset),
-               int(is_new_epoch),
-               int(self.actual_iterator.current_position)]
-        _info = _info.astype(numpy.float32)
-        self.communicator.bcast(_info, root=self.rank_master)
+        ctrl_msg = _build_ctrl_msg(stop, is_valid_data_type, is_paired_dataset,
+                                   is_new_epoch,
+                                   self.actual_iterator.current_position)
+        self.communicator.bcast(ctrl_msg, root=self.rank_master)
 
         if stop:
             raise StopIteration
-        elif not valid_data_type:
-            raise RuntimeError('Multi node iterator supports numpy.float32 '
-                               'or tuple of numpy.float32 as the data type '
-                               'of the batch element only.')
+        elif not is_valid_data_type:
+            raise TypeError('Multi node iterator supports numpy.float32 '
+                            'or tuple of numpy.float32 as the data type '
+                            'of the batch element only.')
+
+        if is_paired_dataset:
+            _xs, _ys = zip(*batch)
+            xs = numpy.asarray(_xs, dtype=numpy.float32)
+            ys = numpy.asarray(_ys, dtype=numpy.float32)
+            self.communicator.bcast(xs, root=self.rank_master)
+            self.communicator.bcast(ys, root=self.rank_master)
+            return batch
         else:
-            if is_paired_dataset:
-                _xs, _ys = zip(*batch)
-                xs = numpy.asarray(_xs, dtype=numpy.float32)
-                ys = numpy.asarray(_ys, dtype=numpy.float32)
-                self.communicator.bcast(xs, root=self.rank_master)
-                self.communicator.bcast(ys, root=self.rank_master)
-                return batch
-            else:
-                if isinstance(batch, list):
-                    batch = numpy.array(batch)
-                batch = self.communicator.bcast(batch, root=self.rank_master)
-                return batch.tolist()
+            if isinstance(batch, list):
+                batch = numpy.array(batch)
+            batch = self.communicator.bcast(batch, root=self.rank_master)
+            return batch.tolist()
 
     next = __next__
 
@@ -135,30 +144,30 @@ class _MultiNodeIteratorSlave(chainer.dataset.iterator.Iterator):
 
     def __next__(self):
         # Check if master iterator received stop signal.
-        _info = self.communicator.bcast(None, root=self.rank_master)
-        stop = bool(_info[0])
-        valid_data_type = bool(_info[1])
-        is_paired_dataset = bool(_info[2])
-        self.is_new_epoch = bool(_info[3])
-        self.current_position = int(_info[4])
+        ctrl_msg = self.communicator.bcast(None, root=self.rank_master)
+        ctrl_info = _parse_ctrl_msg(ctrl_msg)
+        stop = ctrl_info[0]
+        is_valid_data_type = ctrl_info[1]
+        is_paired_dataset = ctrl_info[2]
+        self.is_new_epoch = ctrl_info[3]
+        self.current_position = ctrl_info[4]
 
         if self.is_new_epoch:
             self.epoch += 1
 
         if stop:
             raise StopIteration
-        elif not valid_data_type:
-            raise RuntimeError('Multi node iterator supports numpy.float32 '
-                               'or tuple of numpy.float32 as the data type '
-                               'of the batch element only.')
+        elif not is_valid_data_type:
+            raise TypeError('Multi node iterator supports numpy.float32 '
+                            'or tuple of numpy.float32 as the data type '
+                            'of the batch element only.')
+        if is_paired_dataset:
+            xs = self.communicator.bcast(None, root=self.rank_master)
+            ys = self.communicator.bcast(None, root=self.rank_master)
+            return list(zip(xs, ys.astype(numpy.int32)))
         else:
-            if is_paired_dataset:
-                xs = self.communicator.bcast(None, root=self.rank_master)
-                ys = self.communicator.bcast(None, root=self.rank_master)
-                return list(zip(xs, ys.astype(numpy.int32)))
-            else:
-                batch = self.communicator.bcast(None, root=self.rank_master)
-                return batch.tolist()
+            batch = self.communicator.bcast(None, root=self.rank_master)
+            return batch.tolist()
 
     @property
     def epoch_detail(self):
