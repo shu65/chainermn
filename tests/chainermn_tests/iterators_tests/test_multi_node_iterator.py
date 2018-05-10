@@ -213,4 +213,4 @@ class TestCntrlMessageConversion(unittest.TestCase):
         current_position = 0
         msg = _build_ctrl_msg(stop, is_valid_data_type, is_paired_dataset,
                               is_new_epoch, current_position)
-        self.assertEqual(msg, _build_ctrl_msg(_parse_ctrl_msg(msg)))
+        self.assertEqual(msg, _build_ctrl_msg(*_parse_ctrl_msg(msg)))
