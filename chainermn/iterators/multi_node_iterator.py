@@ -145,12 +145,8 @@ class _MultiNodeIteratorSlave(chainer.dataset.iterator.Iterator):
     def __next__(self):
         # Check if master iterator received stop signal.
         ctrl_msg = self.communicator.bcast(None, root=self.rank_master)
-        ctrl_info = _parse_ctrl_msg(ctrl_msg)
-        stop = ctrl_info[0]
-        is_valid_data_type = ctrl_info[1]
-        is_paired_dataset = ctrl_info[2]
-        self.is_new_epoch = ctrl_info[3]
-        self.current_position = ctrl_info[4]
+        stop, is_valid_data_type, is_paired_dataset, self.is_new_epoch, \
+            self.current_position = _parse_ctrl_msg(ctrl_msg)
 
         if self.is_new_epoch:
             self.epoch += 1
