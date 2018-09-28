@@ -36,10 +36,6 @@ class _MpiMultiNodeBatchNormalizationCommunicator(object):
         self.mpi4py_module = mpi4py_module
 
     def communicate_foward(self, axis, gamma, x, xp):
-        # ChainerMN diff (1/2) begins
-        # This was intentionally left as MPI's allreduce because
-        # MPI was optimized for small messages, while earlier
-        # NCCL2 was optmized for larger messages.
         mpi_comm = self.comm.mpi_comm
         tmp = xp.empty(gamma.size * 2, dtype=x.dtype)
         x.mean(axis=axis, out=tmp[:gamma.size])
@@ -53,13 +49,9 @@ class _MpiMultiNodeBatchNormalizationCommunicator(object):
         mean = tmp[:gamma.size]
         sqmean = tmp[gamma.size:]
         var = sqmean - xp.square(mean)
-        # ChainerMN diff (1/2) ends
         return mean, var
 
     def communicate_backward(self, axis, gamma, gy, x_hat, x, xp):
-        # ChainerMN diff (2/2) begins
-        # Note: It is wrong to multiply m by mpi_comm.size
-        # (instead of multiplying 1/size to gbeta, ggamma)
         mpi_comm = self.comm.mpi_comm
         tmp = xp.empty(gamma.size * 2, dtype=x.dtype)
         gy.sum(axis=axis, out=tmp[:gamma.size])
@@ -72,7 +64,6 @@ class _MpiMultiNodeBatchNormalizationCommunicator(object):
         tmp *= 1.0 / mpi_comm.size
         gbeta = tmp[:gamma.size]
         ggamma = tmp[gamma.size:]
-        # ChainerMN diff (2/2) ends
         return gbeta, ggamma
 
 
@@ -92,7 +83,6 @@ class _NcclMultiNodeBatchNormalizationCommunicator(object):
         self.nccl = nccl
 
     def communicate_foward(self, axis, gamma, x, xp):
-        # ChainerMN diff (1/2) begins
         gpu_buffer_n_elems = gamma.size * 2
         gpu_buffer_size = x.dtype.itemsize * gpu_buffer_n_elems
         gpu_buffer_a = self.memory_utility_module.DeviceMemory()
@@ -118,13 +108,9 @@ class _NcclMultiNodeBatchNormalizationCommunicator(object):
         mean = gpu_buffer_b_array[:gamma.size]
         sqmean = gpu_buffer_b_array[gamma.size:]
         var = sqmean - xp.square(mean)
-        # ChainerMN diff (1/2) ends
         return mean, var
 
     def communicate_backward(self, axis, gamma, gy, x_hat, x, xp):
-        # ChainerMN diff (2/2) begins
-        # Note: It is wrong to multiply m by mpi_comm.size
-        # (instead of multiplying 1/size to gbeta, ggamma)
         gpu_buffer_n_elems = gamma.size * 2
         gpu_buffer_size = x.dtype.itemsize * gpu_buffer_n_elems
         gpu_buffer_a = self.memory_utility_module.DeviceMemory()
@@ -150,7 +136,6 @@ class _NcclMultiNodeBatchNormalizationCommunicator(object):
         gpu_buffer_b_array *= 1.0 / self.comm.size
         gbeta = gpu_buffer_b_array[:gamma.size]
         ggamma = gpu_buffer_b_array[gamma.size:]
-        # ChainerMN diff (2/2) ends
 
         return gbeta, ggamma
 
@@ -221,7 +206,6 @@ class MultiNodeBatchNormalizationFunction(function.Function):
             x_type.dtype.kind == 'f',
             x_type.ndim >= gamma_type.ndim + 1,
             x_type.shape[1:1 + M] == gamma_type.shape,
-            # TODO(beam2d): Check shape
             gamma_type.dtype == x_type.dtype,
             beta_type.dtype == x_type.dtype,
             gamma_type.shape == beta_type.shape,
