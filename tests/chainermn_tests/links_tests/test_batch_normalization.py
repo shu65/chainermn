@@ -11,6 +11,9 @@ from chainermn.links import MultiNodeBatchNormalization
 from chainermn import nccl
 
 
+mpi_comm = mpi4py.MPI.COMM_WORLD
+
+
 class ModelNormalBN(chainer.Chain):
     def __init__(self, n_in=3, n_units=3, n_out=2):
         super(ModelNormalBN, self).__init__(
@@ -44,31 +47,6 @@ class ModelDistributedBN(chainer.Chain):
         h = chainer.functions.relu(self.bn1(self.l1(x)))
         h = chainer.functions.relu(self.bn2(self.l2(h)))
         return self.l3(h)
-
-
-class Param(object):
-    def __init__(self, param):
-        self.communicator_class = NaiveCommunicator
-        self.gpu = False
-        self.__dict__.update(param)
-
-
-mpi_comm = mpi4py.MPI.COMM_WORLD
-
-
-cpu_params = [Param(p) for p in [
-    {
-        'communicator_class': NaiveCommunicator,
-    }]]
-gpu_params = [Param(p) for p in [
-    {
-        'communicator_class': NaiveCommunicator,
-        'gpu': True,
-
-    }, {
-        'communicator_class': PureNcclCommunicator,
-        'gpu': True,
-    }]]
 
 
 def check_multi_node_bn(comm, use_gpu=False):
@@ -211,18 +189,20 @@ def test_version_check():
         MultiNodeBatchNormalization(3, comm)
 
 
-@pytest.mark.parametrize('param', cpu_params)
-def test_multi_node_bn_cpu(param):
-    comm = create_communicator(param.communicator_class, mpi_comm,
+@pytest.mark.parametrize(('communicator_class'), [
+    (NaiveCommunicator)])
+def test_multi_node_bn_cpu(communicator_class):
+    comm = create_communicator(communicator_class, mpi_comm,
                                use_gpu=False)
     check_multi_node_bn(comm)
     comm.mpi_comm.barrier()
 
 
-@pytest.mark.parametrize('param', gpu_params)
+@pytest.mark.parametrize(('communicator_class'), [
+    (NaiveCommunicator), (PureNcclCommunicator)])
 @chainer.testing.attr.gpu
-def test_multi_node_bn_gpu(param):
-    comm = create_communicator(param.communicator_class, mpi_comm,
+def test_multi_node_bn_gpu(communicator_class):
+    comm = create_communicator(communicator_class, mpi_comm,
                                use_gpu=True)
     check_multi_node_bn(comm, use_gpu=True)
     comm.mpi_comm.barrier()
