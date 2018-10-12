@@ -12,8 +12,6 @@ import numpy
 import six
 
 
-class CommunicatorBase(six.with_metaclass(ABCMeta)):
-
 def _as4darray(arr):
     if arr.ndim == 0:
         return arr.reshape(1, 1, 1, 1)
