@@ -1,13 +1,18 @@
 # This file is heavily based on Chainer's batch normalization implementation.
 # See: chainer/functions/normalization/batch_normalization.py (dbb650)
 
+from abc import ABCMeta
+from abc import abstractmethod
 import chainer
 from chainer import cuda
 from chainer import function
 import chainer.utils
 from chainer.utils import type_check
 import numpy
+import six
 
+
+class CommunicatorBase(six.with_metaclass(ABCMeta)):
 
 def _as4darray(arr):
     if arr.ndim == 0:
@@ -24,7 +29,18 @@ def _xhat(x, mean, std, expander):
     return x_mu
 
 
-class _MpiMultiNodeBatchNormalizationCommunicator(object):
+class _MultiNodeBatchNormalizationBackend(six.with_metaclass(ABCMeta)):
+
+    @abstractmethod
+    def forward(self, axis, gamma, x, xp):
+        raise NotImplementedError()
+
+    @abstractmethod
+    def backward(self, axis, gamma, gy, x_hat, x, xp):
+        raise NotImplementedError()
+
+
+class _MpiBackend(_MultiNodeBatchNormalizationBackend):
 
     def __init__(self, comm):
         self.comm = comm
@@ -35,7 +51,7 @@ class _MpiMultiNodeBatchNormalizationCommunicator(object):
         self.memory_utility_module = memory_utility_module
         self.mpi4py_module = mpi4py_module
 
-    def communicate_foward(self, axis, gamma, x, xp):
+    def forward(self, axis, gamma, x, xp):
         mpi_comm = self.comm.mpi_comm
         tmp = xp.empty(gamma.size * 2, dtype=x.dtype)
         x.mean(axis=axis, out=tmp[:gamma.size])
@@ -51,7 +67,7 @@ class _MpiMultiNodeBatchNormalizationCommunicator(object):
         var = sqmean - xp.square(mean)
         return mean, var
 
-    def communicate_backward(self, axis, gamma, gy, x_hat, x, xp):
+    def backward(self, axis, gamma, gy, x_hat, x, xp):
         mpi_comm = self.comm.mpi_comm
         tmp = xp.empty(gamma.size * 2, dtype=x.dtype)
         gy.sum(axis=axis, out=tmp[:gamma.size])
@@ -67,7 +83,7 @@ class _MpiMultiNodeBatchNormalizationCommunicator(object):
         return gbeta, ggamma
 
 
-class _NcclMultiNodeBatchNormalizationCommunicator(object):
+class _NcclBackend(_MultiNodeBatchNormalizationBackend):
 
     def __init__(self, comm):
         self.comm = comm
@@ -82,7 +98,7 @@ class _NcclMultiNodeBatchNormalizationCommunicator(object):
         self.get_nccl_type_id = _get_nccl_type_id
         self.nccl = nccl
 
-    def communicate_foward(self, axis, gamma, x, xp):
+    def forward(self, axis, gamma, x, xp):
         gpu_buffer_n_elems = gamma.size * 2
         gpu_buffer_size = x.dtype.itemsize * gpu_buffer_n_elems
         gpu_buffer_a = self.memory_utility_module.DeviceMemory()
@@ -110,7 +126,7 @@ class _NcclMultiNodeBatchNormalizationCommunicator(object):
         var = sqmean - xp.square(mean)
         return mean, var
 
-    def communicate_backward(self, axis, gamma, gy, x_hat, x, xp):
+    def backward(self, axis, gamma, gy, x_hat, x, xp):
         gpu_buffer_n_elems = gamma.size * 2
         gpu_buffer_size = x.dtype.itemsize * gpu_buffer_n_elems
         gpu_buffer_a = self.memory_utility_module.DeviceMemory()
@@ -189,10 +205,9 @@ class MultiNodeBatchNormalizationFunction(function.Function):
             get_communication_backend(comm, communication_backend)
 
         if selected_communication_backend == 'nccl':
-            self._mnbn_comm = \
-                _NcclMultiNodeBatchNormalizationCommunicator(comm)
+            self._backend = _NcclBackend(comm)
         else:
-            self._mnbn_comm = _MpiMultiNodeBatchNormalizationCommunicator(comm)
+            self._backend = _MpiBackend(comm)
 
     def check_type_forward(self, in_types):
         n_in = type_check.eval(in_types.size())
@@ -253,7 +268,7 @@ class MultiNodeBatchNormalizationFunction(function.Function):
 
         if chainer.configuration.config.train:
             axis = (0,) + tuple(range(head_ndim, x.ndim))
-            mean, var = self._mnbn_comm.communicate_foward(axis, gamma, x, xp)
+            mean, var = self._backend.forward(axis, gamma, x, xp)
             var += self.eps
         else:
             mean = self.fixed_mean
@@ -330,8 +345,8 @@ class MultiNodeBatchNormalizationFunction(function.Function):
 
         # Note: If length of inputs is not 5, we must be in train mode.
         assert chainer.configuration.config.train
-        gbeta, ggamma = self._mnbn_comm.communicate_backward(axis, gamma, gy,
-                                                             self.x_hat, x, xp)
+        gbeta, ggamma = self._backend.backward(axis, gamma, gy,
+                                               self.x_hat, x, xp)
 
         if xp is numpy:
             gx = (gamma / self.std)[expander] * (
